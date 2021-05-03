@@ -1,0 +1,79 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: upgradecontainerd
+  namespace: kube-system
+  labels:
+    app: upgradecontainerd
+spec:
+  selector:
+    matchLabels:
+      name: upgradecontainerd
+  template:
+    metadata:
+      labels:
+        name: upgradecontainerd
+    spec:
+      hostPID: true
+      hostNetwork: true
+      nodeSelector:
+        beta.kubernetes.io/os: linux
+      containers:
+        - name: nsenter
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          command:
+            - nsenter
+            - --target
+            - "1"
+            - --mount
+            - --uts
+            - --ipc
+            - --net
+            - --pid
+            - --
+            - bash
+            - -c
+            - |
+              #! /bin/bash #for ubuntu
+              set -u
+              docker --version
+              if [ $? -eq 0 ]; then
+                echo "docker node, skipping containerd upgrade"
+                sleep infinity
+              fi
+              while true; do
+                TARGET_VERSION="1.5.0-beta.git31a0f92df"
+                CURRENT_VERSION=$(containerd -version | cut -d " " -f 3 | sed 's|v||' | cut -d "+" -f 1)
+                
+                if [ -z ${CURRENT_VERSION} ]; then
+                  echo "not a containerd node"
+                  sleep infinity
+                else
+                  echo "current containerd version = ${CURRENT_VERSION}"
+                fi
+                if [ "${CURRENT_VERSION}" = "${TARGET_VERSION}" ]; then
+                  echo "containerd at target version of ${TARGET_VERSION}"
+                  sleep infinity
+                fi
+                    echo "installing containerd version ${TARGET_VERSION}"
+                    CONTAINERD_VERSION=${TARGET_VERSION}
+                    CONTAINERD_DOWNLOADS_DIR=/tmp/containerd-upgrade
+                    CONTAINERD_DOWNLOAD_URL="https://mobyartifacts.azureedge.net/moby/moby-containerd/${CONTAINERD_VERSION}+azure/bionic/linux_amd64/moby-containerd_${CONTAINERD_VERSION/-/\~}+azure-1_amd64.deb"
+                    mkdir -p $CONTAINERD_DOWNLOADS_DIR
+                    CONTAINERD_DEB_TMP=${CONTAINERD_DOWNLOAD_URL##*/}
+                    curl -fsSL ${CONTAINERD_DOWNLOAD_URL} -o "$CONTAINERD_DOWNLOADS_DIR/${CONTAINERD_DEB_TMP}"
+                    CONTAINERD_DEB_FILE="$CONTAINERD_DOWNLOADS_DIR/${CONTAINERD_DEB_TMP}"
+                    dpkg -i ${CONTAINERD_DEB_FILE}
+                if [ $? -ne 0 ]; then
+                  echo "upgrade was not successful, exited with status $?"
+                  exit 1
+                fi
+                CURRENT_VERSION=$(containerd -version | cut -d " " -f 3 | sed 's|v||' | cut -d "+" -f 1)
+                if [ $CURRENT_VERSION != "${TARGET_VERSION}" ]; then
+                  echo "containerd version ${CURRENT_VERSION} not at ${TARGET_VERSION}"
+                  exit 1
+                fi
+              done
