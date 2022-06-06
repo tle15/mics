@@ -37,7 +37,7 @@ spec:
             - bash
             - -c
             - |
-              #! /bin/bash #for ubuntu
+              #! /bin/bash #for ubuntu.
               set -u
               docker --version
               if [ $? -eq 0 ]; then
